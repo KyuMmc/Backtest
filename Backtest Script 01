@@ -1,0 +1,225 @@
+import pandas as pd
+from datetime import datetime
+import numpy as np
+import time
+
+#initiate for execution time calculation
+start_time = time.time()
+
+
+#read raw data and convert it as df for manipulation
+df = pd.read_csv('input.csv') #2021-12-01 till 2022-01-25
+
+
+#input data
+startdatetime = str(input("enter the Start Date = "))
+enddatetime = str(input("enter the end Date = "))
+    
+#get input of trade prices and grids
+lp = float(input("Lowest Price = "))
+hp = float(input("Highest Price = "))
+grids = int(input("Number of Grids = "))
+invstmnt = float(input("Initial Investment Amount = "))
+leverage = int(input("Leverage =  "))
+fee_input = float(input("brokerage fee = "))
+fee_percent = fee_input/100
+lowerlimit = lp
+
+#duration
+st = pd.to_datetime(startdatetime)
+et = pd.to_datetime(enddatetime)
+diff = et - st
+duration = diff.days
+
+#filter the data according to datetime input
+after_start_date = df['time'] >= startdatetime
+before_end_date = df['time'] <= enddatetime
+data_filter_by_date = after_start_date & before_end_date
+filtered_data = df.loc[data_filter_by_date]
+
+df1 = filtered_data
+
+#convert df to list for further manipulation
+lststockdata = []
+for i in range(len(df1)):
+    dictstock = {}
+    dictstock['date'] = df1.iloc[i,0]
+    dictstock['high'] = df1.iloc[i,2]
+    dictstock['low'] = df1.iloc[i,3]
+    dictstock['close'] = df1.iloc[i, 4]
+    lststockdata.append(dictstock)
+
+
+#grid interval and gridpts calculation
+grid_interval = (hp-lp)/(grids-1)
+gridpts = []
+gridpts.append(lp)
+for i in range(0, grids-1):
+    lp = lp+grid_interval
+    gridpts.append(lp)
+    
+gridpts_rounded = [round(g,2) for g in gridpts]
+
+#investment split and levels calculate
+total_invstmnt = invstmnt * leverage
+start_balance = total_invstmnt
+qty_per_grid = start_balance/(grids-1)
+
+
+#main
+previous_trade = 0
+no_of_trades = []
+buy = 0
+sell = 0
+
+#variable initialization
+total_fee = 0
+total_real_pnl = 0
+total_buy_price = 0
+last_grid_level = 0
+b_fee = 0
+broker_fee = 0
+to_trade = 0
+balance = 0
+s =0
+list_of_trades = []
+gridpt_found = False
+
+for item in lststockdata:
+    high = item['high']
+    low = item['low']
+    close = item['close']
+    date = item['date']
+    end_price = close
+    gridlevel = grids
+    for gridpt in gridpts_rounded:
+        if( (low <= gridpt) and (gridpt <= high)):
+            s = gridpt
+            gridpt_found = True
+            break
+        gridlevel = gridlevel-1
+
+    if(s!=0):
+        b_fee = (s*qty_per_grid*fee_percent)/s
+        broker_fee = "{:.7f}".format(b_fee)
+        to_trade = gridlevel * qty_per_grid
+        balance = round((to_trade - qty_per_grid),4)
+   
+
+
+    if(len(no_of_trades) == 0 and (gridpt_found == True)): 
+        if(gridlevel > 1):
+            no_of_trades.append("Buy") 
+            buy = buy+1
+            list_of_trades_Dict = {'Date':item['date'], 'Price': str(s), 'Balance to maintain': str(balance),'QTY (BTC)': qty_per_grid, 'Side':"Buy", 
+                        'PNL (BTC)': 0,'Fee (BTC)':broker_fee, 'Level': str(grids -(gridlevel-1))}
+            list_of_trades.append(list_of_trades_Dict)
+        
+ 
+
+        previous_trade = s
+        total_fee = total_fee + b_fee
+        total_buy_price = total_buy_price +s
+        last_grid_level = gridlevel
+
+    elif(gridpt_found == True):
+        if(s > previous_trade):
+            no_of_trades.append("Sell")
+            sell = sell+1
+            real_pnl = round((((s*qty_per_grid) - ((s-grid_interval)*qty_per_grid))/s),8)
+            list_of_trades_Dict_sell = {'Date':item['date'], 'Price': str(s), 'Balance to maintain': str(balance) ,'QTY (BTC)': qty_per_grid, 'Side':"Sell", 
+                       'PNL (BTC)': str(real_pnl),'Fee (BTC)':broker_fee, 'Level': str(grids -(gridlevel-1))}
+            list_of_trades.append(list_of_trades_Dict_sell)
+
+            total_fee = total_fee + b_fee
+            total_real_pnl = total_real_pnl + real_pnl
+            last_grid_level = gridlevel
+
+        elif(s < previous_trade):
+            no_of_trades.append("Buy")
+            buy = buy+1
+            list_of_trades_Dict_buy = {'Date':item['date'], 'Price': str(s), 'Balance to maintain': str(balance) , 'QTY (BTC)': qty_per_grid, 'Side':"Buy", 
+                       'PNL (BTC)': 0,'Fee (BTC)':broker_fee, 'Level': str(grids -(gridlevel-1))}
+            list_of_trades.append(list_of_trades_Dict_buy)
+
+            total_fee = total_fee + b_fee
+            total_buy_price = total_buy_price + s
+            
+            last_grid_level = gridlevel
+        previous_trade = s    
+                 
+
+
+#round grid_in terval value
+grid_interval = round(grid_interval, 5)
+
+#realized pnl calculations
+tot_fee = total_fee
+grossprofit = total_real_pnl
+Realized_pnl = grossprofit - total_fee
+tot_trades = len(no_of_trades)
+
+#unrealized pnl calculations
+avg_entry_price = total_buy_price / buy
+
+
+
+#end inventory calculation
+
+end_inventory = 0
+g_level = grids
+
+for i in range(0,len(gridpts_rounded)-1):
+       least = gridpts_rounded[i]
+       highest = gridpts_rounded[i+1]
+       if( (least <= end_price) and (end_price <= highest)):
+            trade = g_level * qty_per_grid
+            bal = trade - qty_per_grid
+            end_inventory = bal
+            break
+       g_level = g_level  - 1
+
+
+unreal_pnl = ((end_price * end_inventory) - (avg_entry_price * end_inventory)) / end_price
+
+#total/net Results
+end_balance = invstmnt + Realized_pnl + unreal_pnl
+
+net_profit = end_balance - invstmnt
+
+net_profit_percent = net_profit/invstmnt
+
+annual_return = round(((((end_balance - invstmnt)/invstmnt)/ duration) * 365),2)
+
+
+
+#create a dict of summary and convert to df
+#Backtest Summary
+summary_dict = {'Start Date':startdatetime,'End Date': enddatetime, 'Start Balance (BTC)': invstmnt,
+           'Gross Net Profit (BTC)':round(grossprofit,5),'Total Fee (BTC)':round(tot_fee,5), 'Realized pnl': round(Realized_pnl,5), 
+           'Unrealized pnl':round(unreal_pnl,5), 'Net Profit (BTC)':round(net_profit,5),
+           'Net Profit %':round(net_profit_percent,4)*100,'Annualized %':annual_return,'Upper Limit':hp,'Lower Limit':lowerlimit,
+           'Total Grids':grids,'Grid Interval':grid_interval,'No of Trades':tot_trades,'Total Buy':buy,
+           'Total Sell':sell,'Avg. Entry Price':round(avg_entry_price,5),'End Balance (BTC)':round(end_balance,5), 'End Price(BTC)':end_price, 
+           'Inventory at the end (BTC)':round(end_inventory,4)}
+
+
+#print and convert summary df to csv and save backtest result to current working directory
+summary_df = pd.DataFrame(summary_dict, index=[0]) 
+print(summary_df)
+
+#save backtest result
+summaryout = "summary_out_" + startdatetime + "_" + "to" + enddatetime + ".csv"
+summary_df.to_csv(summaryout)
+
+#print and convert list of trades(list to df and save backtest result as csv to current working directory)
+list_of_trades_df = pd.DataFrame(list_of_trades)   #convert list to df
+print(list_of_trades_df)
+
+#save backtest result
+list_of_trades_out = "list_of_trades_out_" + startdatetime + "_" + "to" + enddatetime + ".csv"
+list_of_trades_df.to_csv(list_of_trades_out)
+
+
+#execution time
+print("---" + str(((time.time() - start_time)/1000)) + "\t" + "seconds---")
